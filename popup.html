@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NetSpeed</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --bg: #090d18;
+      --bg-2: #10172a;
+      --card: rgba(255, 255, 255, 0.06);
+      --card-2: rgba(255, 255, 255, 0.08);
+      --border: rgba(255, 255, 255, 0.12);
+      --text: #f7faff;
+      --muted: rgba(247, 250, 255, 0.66);
+      --accent-a: #6d7cff;
+      --accent-b: #19d1c3;
+      --accent-c: #7dff9f;
+      --shadow: 0 16px 36px rgba(0, 0, 0, 0.45);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 360px;
+      margin: 0;
+      padding: 16px;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(109, 124, 255, 0.28), transparent 34%),
+        radial-gradient(circle at top right, rgba(25, 209, 195, 0.2), transparent 28%),
+        linear-gradient(180deg, #0b1020 0%, #090d18 100%);
+    }
+
+    .shell {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 28px;
+      padding: 16px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.03));
+      backdrop-filter: blur(12px);
+      box-shadow: var(--shadow);
+    }
+
+    .shell::before,
+    .shell::after {
+      content: "";
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(28px);
+      opacity: 0.4;
+      pointer-events: none;
+    }
+
+    .shell::before {
+      width: 140px;
+      height: 140px;
+      top: -60px;
+      right: -24px;
+      background: rgba(109, 124, 255, 0.34);
+    }
+
+    .shell::after {
+      width: 120px;
+      height: 120px;
+      bottom: 60px;
+      left: -56px;
+      background: rgba(25, 209, 195, 0.26);
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 14px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .title {
+      font-size: 23px;
+      font-weight: 800;
+      line-height: 1.02;
+      letter-spacing: -0.03em;
+      margin: 0;
+    }
+
+    .subtitle {
+      margin-top: 5px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .glow-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--accent-c), var(--accent-b));
+      box-shadow: 0 0 0 6px rgba(125, 255, 159, 0.08), 0 0 24px rgba(125, 255, 159, 0.45);
+      flex: 0 0 auto;
+      margin-top: 7px;
+      animation: pulse 1.8s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.12); opacity: 0.78; }
+    }
+
+    .quick-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 14px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .info-pill {
+      padding: 12px 12px 11px;
+      border-radius: 18px;
+      background: rgba(255,255,255,0.055);
+      border: 1px solid rgba(255,255,255,0.08);
+      min-height: 64px;
+    }
+
+    .info-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .info-value {
+      font-size: 15px;
+      font-weight: 700;
+      word-break: break-word;
+      line-height: 1.15;
+    }
+
+    .gauge-card {
+      position: relative;
+      border-radius: 24px;
+      padding: 18px 14px 16px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.065), rgba(255,255,255,0.035));
+      border: 1px solid rgba(255,255,255,0.08);
+      margin-bottom: 14px;
+      z-index: 1;
+    }
+
+    .gauge-wrap {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 1.6 / 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+    }
+
+    .gauge-svg {
+      width: 100%;
+      max-width: 300px;
+      height: auto;
+      overflow: visible;
+      filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.24));
+    }
+
+    .gauge-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      padding-top: 44px;
+      text-align: center;
+      pointer-events: none;
+    }
+
+    .gauge-kicker {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .gauge-number {
+      font-size: 38px;
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: -0.05em;
+    }
+
+    .gauge-unit {
+      font-size: 13px;
+      color: rgba(247,250,255,0.78);
+      font-weight: 600;
+    }
+
+    .gauge-scale {
+      position: absolute;
+      left: 18px;
+      right: 18px;
+      bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      color: rgba(247,250,255,0.42);
+      font-size: 11px;
+      font-weight: 600;
+      pointer-events: none;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .metric {
+      position: relative;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.05);
+      border-radius: 18px;
+      padding: 11px 10px 10px;
+      cursor: pointer;
+      transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+      min-height: 90px;
+    }
+
+    .metric:hover {
+      transform: translateY(-1px);
+      border-color: rgba(255,255,255,0.16);
+    }
+
+    .metric.active {
+      background: linear-gradient(180deg, rgba(109,124,255,0.16), rgba(25,209,195,0.12));
+      border-color: rgba(125,255,159,0.22);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+    }
+
+    .metric-label {
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .metric-value {
+      font-size: 22px;
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: -0.04em;
+      margin-bottom: 3px;
+    }
+
+    .metric-unit {
+      font-size: 12px;
+      color: rgba(247,250,255,0.76);
+      font-weight: 600;
+    }
+
+    .footer {
+      margin-top: 14px;
+      display: grid;
+      gap: 10px;
+      position: relative;
+      z-index: 1;
+    }
+
+    button {
+      width: 100%;
+      border: 0;
+      border-radius: 18px;
+      padding: 14px 16px;
+      font-size: 15px;
+      font-weight: 800;
+      color: #06111a;
+      background: linear-gradient(135deg, #f8fbff 0%, #d5f8ff 24%, #89fff2 100%);
+      cursor: pointer;
+      box-shadow: 0 12px 26px rgba(25, 209, 195, 0.24);
+      transition: transform 0.18s ease, opacity 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 14px 28px rgba(25, 209, 195, 0.32);
+    }
+
+    button:disabled {
+      cursor: wait;
+      opacity: 0.82;
+      transform: none;
+      box-shadow: 0 10px 20px rgba(25, 209, 195, 0.18);
+    }
+
+    .status {
+      min-height: 18px;
+      font-size: 12px;
+      color: rgba(247,250,255,0.85);
+      line-height: 1.4;
+      padding: 0 2px;
+    }
+
+    .note {
+      font-size: 11px;
+      color: rgba(247,250,255,0.56);
+      line-height: 1.42;
+      padding: 0 2px;
+    }
+
+    .track {
+      stroke: rgba(255,255,255,0.08);
+      stroke-width: 16;
+      fill: none;
+      stroke-linecap: round;
+    }
+
+    .progress {
+      stroke: url(#arcGradient);
+      stroke-width: 16;
+      fill: none;
+      stroke-linecap: round;
+      transition: stroke-dashoffset 0.12s linear;
+    }
+
+    .ticks line {
+      stroke: rgba(255,255,255,0.18);
+      stroke-linecap: round;
+    }
+
+    .needle {
+      transform-origin: 160px 160px;
+      transition: transform 0.12s linear;
+      filter: drop-shadow(0 4px 14px rgba(113, 255, 227, 0.24));
+    }
+
+    .needle line {
+      stroke: url(#needleGradient);
+      stroke-width: 6;
+      stroke-linecap: round;
+    }
+
+    .needle circle {
+      fill: #f7fbff;
+    }
+
+    .tiny {
+      font-size: 10px;
+      opacity: 0.62;
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="header">
+      <div>
+        <h1 class="title">NetSpeed</h1>
+      </div>
+      <div class="glow-dot" aria-hidden="true"></div>
+    </div>
+
+    <div class="quick-grid">
+      <div class="info-pill">
+        <div class="info-label">IP</div>
+        <div id="ipValue" class="info-value">Определяю...</div>
+      </div>
+      <div class="info-pill">
+        <div class="info-label">Страна</div>
+        <div id="countryValue" class="info-value">Определяю...</div>
+      </div>
+    </div>
+
+    <div class="gauge-card">
+      <div class="gauge-wrap">
+        <svg class="gauge-svg" viewBox="0 0 320 220" aria-hidden="true">
+          <defs>
+            <linearGradient id="arcGradient" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stop-color="#6d7cff"></stop>
+              <stop offset="55%" stop-color="#1bd6cb"></stop>
+              <stop offset="100%" stop-color="#7dff9f"></stop>
+            </linearGradient>
+            <linearGradient id="needleGradient" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stop-color="#ffffff"></stop>
+              <stop offset="100%" stop-color="#d9fff6"></stop>
+            </linearGradient>
+          </defs>
+          <g transform="translate(0 6)">
+            <path id="gaugeTrack" class="track" d="M 40 160 A 120 120 0 0 1 280 160"></path>
+            <path id="gaugeProgress" class="progress" d="M 40 160 A 120 120 0 0 1 280 160"></path>
+            <g id="gaugeTicks" class="ticks"></g>
+            <g id="gaugeNeedle" class="needle">
+              <line x1="160" y1="160" x2="244" y2="160"></line>
+            </g>
+          </g>
+        </svg>
+
+        <div class="gauge-overlay">
+          <div id="gaugeLabel" class="gauge-kicker">Готов к замеру</div>
+          <div id="gaugeValue" class="gauge-number">—</div>
+          <div id="gaugeUnit" class="gauge-unit">Mbps</div>
+        </div>
+
+        <div class="gauge-scale">
+          <span id="scaleMin">0</span>
+          <span id="scaleMid">500</span>
+          <span id="scaleMax">1000</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="metrics">
+      <div class="metric active" data-metric="download">
+        <div class="metric-label">Входящая</div>
+        <div id="downloadMetric" class="metric-value">—</div>
+        <div class="metric-unit">Mbps</div>
+      </div>
+      <div class="metric" data-metric="upload">
+        <div class="metric-label">Исходящая</div>
+        <div id="uploadMetric" class="metric-value">—</div>
+        <div class="metric-unit">Mbps</div>
+      </div>
+      <div class="metric" data-metric="ping">
+        <div class="metric-label">Ping</div>
+        <div id="pingMetric" class="metric-value">—</div>
+        <div class="metric-unit">ms</div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <button id="runTest">Проверить скорость</button>
+      <div id="status" class="status">Готово к проверке.</div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

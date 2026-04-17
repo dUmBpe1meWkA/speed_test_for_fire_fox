@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "NetSpeed",
+  "version": "1.0.1",
+  "description": "speed net test",
+  "icons": {
+    "48": "icon.svg",
+    "96": "icon.svg"
+  },
+  "action": {
+    "default_title": "NetSpeed",
+    "default_popup": "popup.html"
+  },
+  "host_permissions": [
+    "https://speed.cloudflare.com/*",
+    "https://*.cloudflare.com/*"
+  ],
+  "permissions": [
+    "storage"
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "myinternettester@local",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    }
+  }
+}
