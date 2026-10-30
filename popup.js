@@ -1,413 +1,445 @@
-const BASE_URL = 'https://speed.cloudflare.com';
-const DOWNLOAD_SIZE_BYTES = 24 * 1024 * 1024;
-const UPLOAD_CHUNK_BYTES = 1024 * 1024;
-const UPLOAD_CHUNKS = 8;
-const PING_ATTEMPTS = 5;
-const REQUEST_TIMEOUT_MS = 20000;
-const UI_UPDATE_INTERVAL_MS = 120;
+const api = typeof browser !== "undefined" ? browser : chrome;
 
-const metricConfig = {
-  download: {
-    label: 'Входящая скорость',
-    unit: 'Mbps',
-    min: 0,
-    mid: 100,
-    max: 200,
-    formatValue: (value) => (Number.isFinite(value) ? value.toFixed(value >= 100 ? 0 : 1) : '—')
-  },
-  upload: {
-    label: 'Исходящая скорость',
-    unit: 'Mbps',
-    min: 0,
-    mid: 50,
-    max: 100,
-    formatValue: (value) => (Number.isFinite(value) ? value.toFixed(value >= 100 ? 0 : 1) : '—')
-  },
-  ping: {
-    label: 'Ping',
-    unit: 'ms',
-    min: 0,
-    mid: 100,
-    max: 200,
-    formatValue: (value) => (Number.isFinite(value) ? Math.round(value).toString() : '—')
+const ui = {
+  runBtn: document.getElementById("runTest"),
+  readyState: document.getElementById("readyState"),
+  status: document.getElementById("status"),
+
+  serverValue: document.getElementById("serverValue"),
+  ipValue: document.getElementById("ipValue"),
+  countryValue: document.getElementById("countryValue"),
+
+  gaugeLabel: document.getElementById("gaugeLabel"),
+  gaugeValue: document.getElementById("gaugeValue"),
+  gaugeUnit: document.getElementById("gaugeUnit"),
+
+  scaleMin: document.getElementById("scaleMin"),
+  scaleMid: document.getElementById("scaleMid"),
+  scaleMax: document.getElementById("scaleMax"),
+
+  gaugeTrack: document.getElementById("gaugeTrack"),
+  gaugeProgress: document.getElementById("gaugeProgress"),
+
+  metricCards: Array.from(document.querySelectorAll(".metric")),
+  phaseItems: Array.from(document.querySelectorAll(".phase")),
+  downloadMetric: document.getElementById("downloadMetric"),
+  uploadMetric: document.getElementById("uploadMetric"),
+  pingMetric: document.getElementById("pingMetric")
+};
+
+const labels = {
+  download: "Входящая скорость",
+  upload: "Исходящая скорость",
+  ping: "Ping"
+};
+
+const state = {
+  selectedMetric: "download",
+  activePhase: null,
+  completedPhases: new Set(),
+  isRunning: false,
+  server: "Cloudflare Edge",
+  ip: "—",
+  country: "—",
+  results: {
+    download: null,
+    upload: null,
+    ping: null
   }
 };
 
-const metricValues = {
-  download: null,
-  upload: null,
-  ping: null
-};
-
-let selectedMetric = 'download';
-let isMeasuring = false;
-let progressLength = 0;
-
-const ipEl = document.getElementById('ipValue');
-const countryEl = document.getElementById('countryValue');
-const pingMetricEl = document.getElementById('pingMetric');
-const downloadMetricEl = document.getElementById('downloadMetric');
-const uploadMetricEl = document.getElementById('uploadMetric');
-const statusEl = document.getElementById('status');
-const buttonEl = document.getElementById('runTest');
-const gaugeLabelEl = document.getElementById('gaugeLabel');
-const gaugeValueEl = document.getElementById('gaugeValue');
-const gaugeUnitEl = document.getElementById('gaugeUnit');
-const scaleMinEl = document.getElementById('scaleMin');
-const scaleMidEl = document.getElementById('scaleMid');
-const scaleMaxEl = document.getElementById('scaleMax');
-const progressEl = document.getElementById('gaugeProgress');
-const needleEl = document.getElementById('gaugeNeedle');
-const ticksEl = document.getElementById('gaugeTicks');
-const metricButtons = Array.from(document.querySelectorAll('.metric'));
+const gaugeLength = ui.gaugeTrack.getTotalLength();
+ui.gaugeProgress.style.strokeDasharray = `${gaugeLength}`;
+ui.gaugeProgress.style.strokeDashoffset = `${gaugeLength}`;
 
 function setStatus(text) {
-  statusEl.textContent = text;
+  ui.status.textContent = text || "";
 }
 
-function setBusy(busy) {
-  isMeasuring = busy;
-  buttonEl.disabled = busy;
-  buttonEl.textContent = busy ? 'Идёт замер...' : 'Проверить скорость';
+function setReadyState(text) {
+  ui.readyState.textContent = text;
 }
 
-function buildNoCacheUrl(url) {
-  const separator = url.includes('?') ? '&' : '?';
-  return `${url}${separator}t=${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
+function setPhase(activePhase, completed = []) {
+  state.activePhase = activePhase;
+  state.completedPhases = new Set(completed);
 
-async function fetchWithTimeout(url, options = {}) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-  try {
-    return await fetch(url, {
-      cache: 'no-store',
-      signal: controller.signal,
-      ...options
-    });
-  } finally {
-    clearTimeout(timeoutId);
+  for (const item of ui.phaseItems) {
+    const phase = item.dataset.phase;
+    item.classList.toggle("active", phase === activePhase);
+    item.classList.toggle("done", state.completedPhases.has(phase));
   }
 }
 
-function flagFromCountryCode(countryCode) {
-  if (!countryCode || countryCode.length !== 2) return '🌍';
-  const codePoints = countryCode
-    .toUpperCase()
-    .split('')
-    .map((char) => 127397 + char.charCodeAt(0));
-  return String.fromCodePoint(...codePoints);
+function clamp(num, min, max) {
+  return Math.min(max, Math.max(min, num));
 }
 
-function countryNameFromCode(countryCode) {
-  try {
-    const displayNames = new Intl.DisplayNames(['ru'], { type: 'region' });
-    return displayNames.of(countryCode?.toUpperCase() || '') || countryCode || 'Неизвестно';
-  } catch {
-    return countryCode || 'Неизвестно';
+function round(value, digits = 1) {
+  if (value == null || Number.isNaN(value)) return null;
+  return Number(value.toFixed(digits));
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function formatMetricValue(metric, value) {
+  if (value == null || Number.isNaN(value)) return "—";
+  if (metric === "ping") return String(Math.round(value));
+  return value.toFixed(value >= 100 ? 0 : 1);
+}
+
+function getMetricUnit(metric) {
+  return metric === "ping" ? "ms" : "Mbps";
+}
+
+function getGaugeMax(metric, rawValue) {
+  if (metric === "ping") return 300;
+  if (rawValue != null && rawValue > 1000) return Math.ceil(rawValue / 500) * 500;
+  return 1000;
+}
+
+function updateGauge(metric, rawValue) {
+  const max = getGaugeMax(metric, rawValue);
+  const value = rawValue == null ? null : clamp(rawValue, 0, max);
+  const ratio = value == null ? 0 : clamp(value / max, 0, 1);
+  const offset = gaugeLength * (1 - ratio);
+
+  ui.gaugeLabel.textContent = labels[metric];
+  ui.gaugeValue.textContent = formatMetricValue(metric, value);
+  ui.gaugeUnit.textContent = getMetricUnit(metric);
+
+  ui.scaleMin.textContent = "0";
+  ui.scaleMid.textContent = String(Math.round(max / 2));
+  ui.scaleMax.textContent = String(max);
+
+  ui.gaugeProgress.style.strokeDashoffset = `${offset}`;
+}
+
+function renderMetricCards() {
+  ui.downloadMetric.textContent = formatMetricValue("download", state.results.download);
+  ui.uploadMetric.textContent = formatMetricValue("upload", state.results.upload);
+  ui.pingMetric.textContent = formatMetricValue("ping", state.results.ping);
+
+  for (const card of ui.metricCards) {
+    const isActive = card.dataset.metric === state.selectedMetric;
+    card.classList.toggle("active", isActive);
+    card.setAttribute("aria-pressed", String(isActive));
   }
 }
 
-async function loadIpInfo() {
-  try {
-    const response = await fetchWithTimeout('https://www.cloudflare.com/cdn-cgi/trace');
-    if (!response.ok) throw new Error(`Trace status ${response.status}`);
-
-    const text = await response.text();
-    const data = Object.fromEntries(
-      text
-        .trim()
-        .split('\n')
-        .filter(Boolean)
-        .map((line) => {
-          const index = line.indexOf('=');
-          return index === -1 ? [line, ''] : [line.slice(0, index), line.slice(index + 1)];
-        })
-    );
-
-    const ip = data.ip || 'Не найден';
-    const countryCode = (data.loc || '').toUpperCase();
-    const countryName = countryNameFromCode(countryCode);
-
-    ipEl.textContent = ip;
-    countryEl.textContent = `${flagFromCountryCode(countryCode)} ${countryName}`;
-  } catch (error) {
-    console.warn('IP lookup failed:', error);
-    ipEl.textContent = 'Не удалось';
-    countryEl.textContent = 'Не удалось';
-  }
+function renderInfo() {
+  ui.serverValue.textContent = state.server;
+  ui.ipValue.textContent = state.ip || "—";
+  ui.countryValue.textContent = state.country || "—";
 }
 
-function polarToCartesian(cx, cy, radius, angleDeg) {
-  const angleRad = (angleDeg - 90) * (Math.PI / 180);
+function renderAll() {
+  renderInfo();
+  renderMetricCards();
+  updateGauge(state.selectedMetric, state.results[state.selectedMetric]);
+}
+
+function selectMetric(metric) {
+  state.selectedMetric = metric;
+  renderMetricCards();
+  updateGauge(metric, state.results[metric]);
+}
+
+function metricUpdate(metric, value) {
+  state.results[metric] = value;
+  state.selectedMetric = metric;
+  renderAll();
+}
+
+function parseTrace(text) {
+  const lines = text.split("\n").map(s => s.trim()).filter(Boolean);
+  const map = {};
+
+  for (const line of lines) {
+    const [key, ...rest] = line.split("=");
+    map[key] = rest.join("=");
+  }
+
+  return map;
+}
+
+function countryNameFromCode(code) {
+  if (!code || code === "—") return "—";
+
+  try {
+    if (typeof Intl !== "undefined" && Intl.DisplayNames) {
+      const dn = new Intl.DisplayNames(["ru"], { type: "region" });
+      return dn.of(code) || code;
+    }
+  } catch {}
+
+  return code;
+}
+
+function makeRandomBytes(size) {
+  const buffer = new Uint8Array(size);
+
+  for (let i = 0; i < size; i += 65536) {
+    crypto.getRandomValues(buffer.subarray(i, Math.min(i + 65536, size)));
+  }
+
+  return buffer;
+}
+
+async function cloudflareMeta() {
+  const response = await fetch(`https://speed.cloudflare.com/cdn-cgi/trace?ts=${Date.now()}`, {
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error("Cloudflare trace failed");
+  }
+
+  const text = await response.text();
+  const parsed = parseTrace(text);
+
   return {
-    x: cx + radius * Math.cos(angleRad),
-    y: cy + radius * Math.sin(angleRad)
+    ip: parsed.ip || "—",
+    country: countryNameFromCode(parsed.loc || "—")
   };
 }
 
-function drawTicks() {
-  if (ticksEl.childElementCount > 0) return;
+async function cloudflarePing(samples = 4, onUpdate) {
+  const times = [];
 
-  const totalTicks = 9;
-  const startAngle = -90;
-  const endAngle = 90;
+  for (let i = 0; i < samples; i++) {
+    const start = performance.now();
 
-  for (let i = 0; i <= totalTicks; i += 1) {
-    const t = i / totalTicks;
-    const angle = startAngle + (endAngle - startAngle) * t;
-    const outer = polarToCartesian(160, 160, 136, angle);
-    const inner = polarToCartesian(160, 160, i % 3 === 0 ? 118 : 124, angle);
-    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    line.setAttribute('x1', inner.x.toFixed(2));
-    line.setAttribute('y1', inner.y.toFixed(2));
-    line.setAttribute('x2', outer.x.toFixed(2));
-    line.setAttribute('y2', outer.y.toFixed(2));
-    line.setAttribute('stroke-width', i % 3 === 0 ? '4' : '2.5');
-    ticksEl.appendChild(line);
+    const response = await fetch(
+      `https://speed.cloudflare.com/__down?bytes=1&seed=${Date.now()}_${i}`,
+      { cache: "no-store" }
+    );
+
+    await response.arrayBuffer();
+
+    const ms = performance.now() - start;
+    times.push(ms);
+
+    const avg = times.reduce((a, b) => a + b, 0) / times.length;
+    if (onUpdate) onUpdate(avg);
+
+    await sleep(120);
   }
+
+  return times.reduce((a, b) => a + b, 0) / times.length;
 }
 
-function ensureGaugeReady() {
-  if (progressLength > 0) return;
-  progressLength = progressEl.getTotalLength();
-  progressEl.style.strokeDasharray = `${progressLength}`;
-  progressEl.style.strokeDashoffset = `${progressLength}`;
-  drawTicks();
-}
+async function streamDownload(url, onUpdate) {
+  const start = performance.now();
+  const response = await fetch(url, { cache: "no-store" });
 
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
-}
-
-function displayMetricValue(metricName, value) {
-  return metricConfig[metricName].formatValue(value);
-}
-
-function autoScaleValue(metricName, value) {
-  const config = metricConfig[metricName];
-  if (!Number.isFinite(value)) return config;
-
-  const min = 0;
-  let max = config.max;
-  while (value > max && max < 10000) {
-    max *= 2;
+  if (!response.ok) {
+    throw new Error(`Download failed: ${response.status}`);
   }
-  const mid = Math.round(max / 2);
-  return { ...config, min, mid, max };
-}
 
-function setGauge(metricName, value) {
-  ensureGaugeReady();
+  if (!response.body || !response.body.getReader) {
+    const buf = await response.arrayBuffer();
+    const elapsed = (performance.now() - start) / 1000;
+    const mbps = ((buf.byteLength * 8) / elapsed) / 1_000_000;
 
-  const config = autoScaleValue(metricName, value);
-  const boundedValue = Number.isFinite(value) ? clamp(value, config.min, config.max) : 0;
-  const range = config.max - config.min || 1;
-  const progress = Number.isFinite(value) ? (boundedValue - config.min) / range : 0;
-  const offset = progressLength * (1 - progress);
-  const angle = -90 + 180 * progress;
-
-  gaugeLabelEl.textContent = config.label;
-  gaugeUnitEl.textContent = config.unit;
-  gaugeValueEl.textContent = displayMetricValue(metricName, value);
-  scaleMinEl.textContent = `${config.min}`;
-  scaleMidEl.textContent = `${config.mid}`;
-  scaleMaxEl.textContent = `${config.max}`;
-  progressEl.style.strokeDashoffset = `${offset}`;
-  needleEl.style.transform = `rotate(${angle}deg)`;
-}
-
-function updateMetricCards() {
-  downloadMetricEl.textContent = displayMetricValue('download', metricValues.download);
-  uploadMetricEl.textContent = displayMetricValue('upload', metricValues.upload);
-  pingMetricEl.textContent = displayMetricValue('ping', metricValues.ping);
-}
-
-function setSelectedMetric(metricName, { force = false } = {}) {
-  if (isMeasuring && !force) return;
-
-  selectedMetric = metricName;
-  for (const button of metricButtons) {
-    button.classList.toggle('active', button.dataset.metric === metricName);
-  }
-  setGauge(metricName, metricValues[metricName]);
-}
-
-function liveUpdateMetric(metricName, value, statusText) {
-  metricValues[metricName] = value;
-  updateMetricCards();
-  selectedMetric = metricName;
-  for (const button of metricButtons) {
-    button.classList.toggle('active', button.dataset.metric === metricName);
-  }
-  setGauge(metricName, value);
-  setStatus(statusText);
-}
-
-function resetMetrics() {
-  metricValues.download = null;
-  metricValues.upload = null;
-  metricValues.ping = null;
-  updateMetricCards();
-  setGauge('download', null);
-  for (const button of metricButtons) {
-    button.classList.toggle('active', button.dataset.metric === 'download');
-  }
-  selectedMetric = 'download';
-}
-
-async function measureDownloadLive() {
-  const response = await fetchWithTimeout(
-    buildNoCacheUrl(`${BASE_URL}/__down?bytes=${DOWNLOAD_SIZE_BYTES}`),
-    { method: 'GET' }
-  );
-
-  if (!response.ok || !response.body) {
-    throw new Error('Не удалось начать тест входящей скорости.');
+    if (onUpdate) onUpdate(mbps);
+    return mbps;
   }
 
   const reader = response.body.getReader();
-  let receivedBytes = 0;
-  let lastUiUpdate = 0;
-  const start = performance.now();
+  let bytes = 0;
+  let lastPaint = 0;
 
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      receivedBytes += value.byteLength;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
 
-      const now = performance.now();
-      if (now - lastUiUpdate >= UI_UPDATE_INTERVAL_MS) {
-        const seconds = Math.max((now - start) / 1000, 0.001);
-        const mbps = (receivedBytes * 8) / seconds / 1_000_000;
-        liveUpdateMetric('download', mbps, `Измеряю входящую: ${mbps.toFixed(mbps >= 100 ? 0 : 1)} Mbps`);
-        lastUiUpdate = now;
-      }
-    }
-  } finally {
-    try {
-      await reader.cancel();
-    } catch {
-      // ignore
+    bytes += value.byteLength;
+
+    const now = performance.now();
+    if (now - lastPaint > 120) {
+      const seconds = (now - start) / 1000;
+      const mbps = ((bytes * 8) / seconds) / 1_000_000;
+      if (onUpdate) onUpdate(mbps);
+      lastPaint = now;
     }
   }
 
-  const seconds = Math.max((performance.now() - start) / 1000, 0.001);
-  if (receivedBytes === 0) {
-    throw new Error('Недостаточно данных для расчёта входящей скорости.');
-  }
+  const totalSeconds = (performance.now() - start) / 1000;
+  const finalMbps = ((bytes * 8) / totalSeconds) / 1_000_000;
 
-  return (receivedBytes * 8) / seconds / 1_000_000;
+  if (onUpdate) onUpdate(finalMbps);
+  return finalMbps;
 }
 
-async function measureUploadLive() {
-  const chunk = new Uint8Array(UPLOAD_CHUNK_BYTES);
-
-  let sentBytes = 0;
+async function chunkedUpload(url, durationMs, chunkSize, onUpdate) {
   const start = performance.now();
+  let bytesSent = 0;
+  let sentAtLeastOnce = false;
 
-  for (let i = 0; i < UPLOAD_CHUNKS; i += 1) {
-    const response = await fetchWithTimeout(buildNoCacheUrl(`${BASE_URL}/__up`), {
-      method: 'POST',
+  while (performance.now() - start < durationMs) {
+    const chunk = makeRandomBytes(chunkSize);
+
+    const response = await fetch(`${url}?seed=${Date.now()}`, {
+      method: "POST",
+      cache: "no-store",
       headers: {
-        'content-type': 'application/octet-stream'
+        "content-type": "application/octet-stream"
       },
       body: chunk
     });
 
     if (!response.ok) {
-      throw new Error(`Upload сервер ответил кодом ${response.status}`);
+      throw new Error(`Upload failed: ${response.status}`);
     }
 
-    sentBytes += chunk.byteLength;
-    const seconds = Math.max((performance.now() - start) / 1000, 0.001);
-    const mbps = (sentBytes * 8) / seconds / 1_000_000;
-    liveUpdateMetric('upload', mbps, `Измеряю исходящую: ${mbps.toFixed(mbps >= 100 ? 0 : 1)} Mbps`);
+    bytesSent += chunk.byteLength;
+    sentAtLeastOnce = true;
 
-    try {
-      await response.text();
-    } catch {
-      // ignore
-    }
+    const seconds = (performance.now() - start) / 1000;
+    const mbps = ((bytesSent * 8) / seconds) / 1_000_000;
+    if (onUpdate) onUpdate(mbps);
   }
 
-  const seconds = Math.max((performance.now() - start) / 1000, 0.001);
-  return (sentBytes * 8) / seconds / 1_000_000;
+  if (!sentAtLeastOnce) {
+    throw new Error("Upload did not start");
+  }
+
+  const totalSeconds = (performance.now() - start) / 1000;
+  const finalMbps = ((bytesSent * 8) / totalSeconds) / 1_000_000;
+
+  if (onUpdate) onUpdate(finalMbps);
+  return finalMbps;
 }
 
-async function measurePingLive() {
-  const values = [];
+async function runCloudflareTest() {
+  state.server = "Cloudflare Edge";
+  renderInfo();
 
-  for (let i = 0; i < PING_ATTEMPTS; i += 1) {
-    const start = performance.now();
-    const response = await fetchWithTimeout(buildNoCacheUrl(`${BASE_URL}/__down?bytes=32`), {
-      method: 'GET'
-    });
-    const end = performance.now();
+  setPhase("meta");
+  setStatus("Определяю IP и страну...");
+  const meta = await cloudflareMeta();
+  state.ip = meta.ip;
+  state.country = meta.country;
+  renderInfo();
 
-    if (!response.ok) {
-      throw new Error(`Ping сервер ответил кодом ${response.status}`);
-    }
+  setPhase("download", ["meta"]);
+  setStatus("Измеряю входящую скорость...");
+  const download = await streamDownload(
+    `https://speed.cloudflare.com/__down?bytes=${30 * 1024 * 1024}&seed=${Date.now()}`,
+    value => metricUpdate("download", value)
+  );
 
-    try {
-      if (response.body) {
-        await response.body.cancel();
-      }
-    } catch {
-      // ignore
-    }
+  setPhase("upload", ["meta", "download"]);
+  setStatus("Измеряю исходящую скорость...");
+  const upload = await chunkedUpload(
+    "https://speed.cloudflare.com/__up",
+    4200,
+    512 * 1024,
+    value => metricUpdate("upload", value)
+  );
 
-    values.push(end - start);
-    const average = values.reduce((sum, value) => sum + value, 0) / values.length;
-    liveUpdateMetric('ping', average, `Измеряю ping: попытка ${i + 1} из ${PING_ATTEMPTS}`);
-  }
+  setPhase("ping", ["meta", "download", "upload"]);
+  setStatus("Измеряю ping...");
+  const ping = await cloudflarePing(4, value => metricUpdate("ping", value));
 
-  values.sort((a, b) => a - b);
-  if (values.length > 2) {
-    values.shift();
-    values.pop();
-  }
+  setPhase(null, ["meta", "download", "upload", "ping"]);
 
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
+  return {
+    download,
+    upload,
+    ping,
+    ip: meta.ip,
+    country: meta.country
+  };
 }
 
-metricButtons.forEach((button) => {
-  button.addEventListener('click', () => {
-    setSelectedMetric(button.dataset.metric);
-  });
-});
+async function runTest() {
+  if (state.isRunning) return;
 
-buttonEl.addEventListener('click', async () => {
-  setBusy(true);
-  resetMetrics();
+  state.isRunning = true;
+  ui.runBtn.disabled = true;
+  ui.runBtn.textContent = "Проверяю...";
+  setReadyState("Run");
+
+  state.ip = "—";
+  state.country = "—";
+  state.results.download = null;
+  state.results.upload = null;
+  state.results.ping = null;
+  renderAll();
+
+  setPhase(null);
+  setStatus("Запуск теста...");
 
   try {
-    setStatus('Стартую замер...');
+    const result = await runCloudflareTest();
 
-    const downloadMbps = await measureDownloadLive();
-    liveUpdateMetric('download', downloadMbps, 'Входящая готова. Перехожу к исходящей...');
+    state.results.download = round(result.download, 1);
+    state.results.upload = round(result.upload, 1);
+    state.results.ping = round(result.ping, 0);
+    state.ip = result.ip || "—";
+    state.country = result.country || "—";
+    state.selectedMetric = "download";
 
-    const uploadMbps = await measureUploadLive();
-    liveUpdateMetric('upload', uploadMbps, 'Исходящая готова. Перехожу к ping...');
+    renderAll();
+    setReadyState("Done");
+    setStatus("Готово. Последний результат сохранен.");
 
-    const ping = await measurePingLive();
-    liveUpdateMetric('ping', ping, 'Готово. Нажми на карточку, чтобы вывести нужную метрику на спидометр.');
-
-    selectedMetric = 'download';
-    for (const button of metricButtons) {
-      button.classList.toggle('active', button.dataset.metric === 'download');
-    }
-    setGauge('download', metricValues.download);
+    await api.storage.local.set({
+      last_speed_result: state.results,
+      last_speed_ip: state.ip,
+      last_speed_country: state.country
+    });
   } catch (error) {
     console.error(error);
-    setStatus(`Ошибка: ${error.message}`);
+    setReadyState("Error");
+    setPhase(null);
+    setStatus("Не удалось выполнить тест. Проверьте соединение и попробуйте еще раз.");
   } finally {
-    setBusy(false);
+    state.isRunning = false;
+    ui.runBtn.disabled = false;
+    ui.runBtn.textContent = "Проверить скорость";
   }
-});
+}
 
-ensureGaugeReady();
-setSelectedMetric('download', { force: true });
-loadIpInfo();
+ui.runBtn.addEventListener("click", runTest);
+
+for (const card of ui.metricCards) {
+  card.addEventListener("click", () => {
+    selectMetric(card.dataset.metric);
+  });
+}
+
+document.addEventListener("DOMContentLoaded", async () => {
+  try {
+    const saved = await api.storage.local.get([
+      "last_speed_result",
+      "last_speed_ip",
+      "last_speed_country"
+    ]);
+
+    if (saved.last_speed_result) {
+      state.results = {
+        download: saved.last_speed_result.download ?? null,
+        upload: saved.last_speed_result.upload ?? null,
+        ping: saved.last_speed_result.ping ?? null
+      };
+      setStatus("Показан последний сохраненный результат.");
+    }
+
+    if (saved.last_speed_ip) {
+      state.ip = saved.last_speed_ip;
+    }
+
+    if (saved.last_speed_country) {
+      state.country = saved.last_speed_country;
+    }
+  } catch (error) {
+    console.error(error);
+  }
+
+  renderAll();
+});

@@ -1,30 +1,28 @@
 {
   "manifest_version": 3,
-  "name": "NetSpeed",
-  "version": "1.0.1",
-  "description": "speed net test",
-  "icons": {
-    "48": "icon.svg",
-    "96": "icon.svg"
-  },
+  "name": "Net Meter Plus",
+  "version": "1.1.0",
+  "description": "Измерение входящей и исходящей скорости сети, ping, IP и страны через Cloudflare.",
   "action": {
-    "default_title": "NetSpeed",
+    "default_title": "Net Meter Plus",
     "default_popup": "popup.html"
   },
+  "permissions": [
+    "storage"
+  ],
   "host_permissions": [
     "https://speed.cloudflare.com/*",
     "https://*.cloudflare.com/*"
   ],
-  "permissions": [
-    "storage"
-  ],
+  "icons": {
+    "48": "icon.svg",
+    "96": "icon.svg"
+  },
   "browser_specific_settings": {
     "gecko": {
-      "id": "myinternettester@local",
+      "id": "netmeterplus@local",
       "data_collection_permissions": {
-        "required": [
-          "none"
-        ]
+        "required": ["none"]
       }
     }
   }
